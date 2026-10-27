@@ -1,0 +1,154 @@
+{{- if .Values.postgresHa.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-ha-headless
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: postgres-ha
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
+    - name: patroni
+      port: 8008
+      targetPort: 8008
+  selector:
+    app.kubernetes.io/component: postgres-ha
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-ha-primary
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: postgres-ha
+spec:
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/component: postgres-ha
+    role: primary
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-ha-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: postgres-ha
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-ha
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: postgres-ha
+spec:
+  serviceName: postgres-ha-headless
+  podManagementPolicy: Parallel
+  replicas: {{ .Values.postgresHa.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: postgres-ha
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: postgres-ha
+    spec:
+      serviceAccountName: hyperscale-service-account
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: postgres-ha
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres-patroni
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.postgresHa.image.repository }}:{{ .Values.postgresHa.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+            - name: patroni
+              containerPort: 8008
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PATRONI_CONNECT_HOST
+              value: "$(NODE_NAME).postgres-ha-headless.$(POD_NAMESPACE).svc.cluster.local"
+            - name: ETCD_HOSTS
+              value: "etcd-0.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2379,etcd-1.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2379,etcd-2.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2379"
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresHa.credentials.username | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgresHa.credentials.password | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresHa.credentials.database | quote }}
+            - name: REPLICATOR_PASSWORD
+              value: {{ .Values.postgresHa.credentials.replicatorPassword | quote }}
+            - name: PATRONI_DATA_DIR
+              value: /var/lib/postgresql/storage/pgdata
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8008
+            initialDelaySeconds: 10
+            periodSeconds: 3
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8008
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.postgresHa.resources | nindent 12 }}
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/storage
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: {{ .Values.global.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresHa.storage.size }}
+{{- end }}

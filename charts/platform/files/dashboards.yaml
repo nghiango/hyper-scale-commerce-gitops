@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: local
+    folder: HyperScale
+    type: file
+    options:
+      path: /dashboards

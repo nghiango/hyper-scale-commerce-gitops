@@ -1,0 +1,227 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: ingress
+data:
+  haproxy.cfg: |
+    global
+        log stdout format raw local0 info
+        maxconn 50000
+
+    defaults
+        log global
+        mode http
+        option httplog
+        option dontlognull
+        option http-server-close
+        option http-keep-alive
+        timeout connect 10s
+        timeout client  60s
+        timeout server  60s
+        timeout queue   30s
+        timeout http-keep-alive 60s
+        timeout http-request 10s
+
+    peers mypeers
+        peer ingress-0 ingress-0.haproxy-peers.{{ .Values.global.namespace }}.svc.cluster.local:1024
+        peer ingress-1 ingress-1.haproxy-peers.{{ .Values.global.namespace }}.svc.cluster.local:1024
+
+    frontend stats
+        bind *:8404
+        stats enable
+        stats uri /stats
+        stats refresh 5s
+
+    frontend app_front
+        bind *:8080
+        http-request del-header X-Forwarded-For
+        http-request set-header X-Forwarded-For %[src]
+
+        # Block unauthorized admin routes
+        http-request deny deny_status 403 if { path_beg /actuator/admin }
+        http-request deny deny_status 403 if { path_beg /admin }
+
+        # Topology-wide synchronized rate limiting
+        stick-table type ip size 100k expire 60s store http_req_rate(60s) peers mypeers
+        http-request track-sc0 src
+        http-request deny deny_status 429 if { sc0_http_req_rate gt {{ .Values.ingress.rateLimit | default 300000 }} }
+
+        default_backend app_back
+
+    backend app_back
+        balance roundrobin
+        http-reuse aggressive
+        option httpchk GET /actuator/health/readiness
+        http-check expect status 200
+        default-server inter 2s fall 2 rise 2 maxconn 10000
+        server-template app 10 app-service.{{ .Values.global.namespace }}.svc.cluster.local:8080 check resolvers k8s init-addr none
+
+    frontend query_front
+        bind *:8081
+        http-request del-header X-Forwarded-For
+        http-request set-header X-Forwarded-For %[src]
+
+        http-request deny deny_status 403 if { path_beg /actuator/admin }
+        http-request deny deny_status 403 if { path_beg /admin }
+
+        stick-table type ip size 100k expire 60s store http_req_rate(60s) peers mypeers
+        http-request track-sc0 src
+        http-request deny deny_status 429 if { sc0_http_req_rate gt {{ .Values.ingress.rateLimit | default 300000 }} }
+
+        default_backend query_back
+
+    backend query_back
+        balance roundrobin
+        http-reuse aggressive
+        option httpchk GET /actuator/health/readiness
+        http-check expect status 200
+        default-server inter 2s fall 2 rise 2 maxconn 10000
+        server-template order-query 10 order-query-service.{{ .Values.global.namespace }}.svc.cluster.local:8081 check resolvers k8s init-addr none
+
+    resolvers k8s
+        nameserver dns 10.96.0.10:53
+        resolve_retries 3
+        timeout retry 1s
+        hold valid 5s
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy-peers
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: ingress
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: peer-sync
+      port: 1024
+      targetPort: 1024
+  selector:
+    app.kubernetes.io/component: ingress
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hyperscale-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: ingress
+spec:
+  type: {{ .Values.ingress.service.type }}
+  ports:
+    - name: app
+      port: {{ .Values.ingress.service.appPort }}
+      targetPort: 8080
+      nodePort: {{ .Values.ingress.service.appNodePort }}
+    - name: query
+      port: {{ .Values.ingress.service.queryPort }}
+      targetPort: 8081
+      nodePort: {{ .Values.ingress.service.queryNodePort }}
+    - name: stats
+      port: {{ .Values.ingress.service.statsPort }}
+      targetPort: 8404
+      nodePort: {{ .Values.ingress.service.statsNodePort }}
+  selector:
+    app.kubernetes.io/component: ingress
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingress-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: ingress
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: ingress
+spec:
+  serviceName: haproxy-peers
+  podManagementPolicy: Parallel
+  replicas: {{ .Values.ingress.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: ingress
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: ingress
+    spec:
+      serviceAccountName: hyperscale-service-account
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: ingress
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 99
+        runAsGroup: 99
+        fsGroup: 99
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: haproxy
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.ingress.image.repository }}:{{ .Values.ingress.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: app
+              containerPort: 8080
+            - name: query
+              containerPort: 8081
+            - name: stats
+              containerPort: 8404
+            - name: peers
+              containerPort: 1024
+          readinessProbe:
+            httpGet:
+              path: /stats
+              port: 8404
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /stats
+              port: 8404
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.ingress.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/etc/haproxy/haproxy.cfg
+              subPath: haproxy.cfg
+      volumes:
+        - name: config
+          configMap:
+            name: haproxy-config
+{{- end }}

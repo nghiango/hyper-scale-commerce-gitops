@@ -1,0 +1,27 @@
+# Bootstrap only: pending-ci images do not represent a verified release.
+# Jenkins replaces these values after the full build passes. Never put secrets here.
+global:
+  namespace: hyperscale
+  revision: "pending-ci"
+  imagePullPolicy: Always
+app:
+  replicaCount: 3
+  image:
+    repository: hyperscale-k8s-worker:30500/hyperscale/hyperscale-app
+    tag: "pending-ci"
+orderQuery:
+  replicaCount: 3
+  image:
+    repository: hyperscale-k8s-worker:30500/hyperscale/hyperscale-order-query
+    tag: "pending-ci"
+postgresHa:
+  image:
+    repository: hyperscale-k8s-worker:30500/hyperscale/hyperscale-patroni
+    tag: "pending-ci"
+localDelivery:
+  enabled: true
+  # 2 services * (8 max + 1 surge) * (8 primary + 4 replica) = 216 connections.
+  # Reserve additional headroom for migrations, Patroni and operator sessions.
+  primaryPoolSize: 8
+  replicaPoolSize: 4
+  tracingEndpoint: http://otel-collector:9411/api/v2/spans

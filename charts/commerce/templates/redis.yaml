@@ -1,0 +1,176 @@
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-secret
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: redis
+type: Opaque
+stringData:
+  redis-password: {{ .Values.redis.auth.password | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: redis
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  selector:
+    app.kubernetes.io/component: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: redis
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+    - name: metrics
+      port: 9121
+      targetPort: 9121
+  selector:
+    app.kubernetes.io/component: redis
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: redis-headless
+  replicas: {{ .Values.redis.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+      labels:
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: redis
+    spec:
+      serviceAccountName: hyperscale-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - redis-server
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+            - "--dir"
+            - "/data"
+            - "--appendonly"
+            - "yes"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: redis-password
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+        - name: redis-exporter
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.redis.exporter.image.repository }}:{{ .Values.redis.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: REDIS_ADDR
+              value: "redis://localhost:6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: redis-password
+          ports:
+            - name: metrics
+              containerPort: 9121
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9121
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.redis.exporter.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: {{ .Values.global.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage.size }}
+{{- end }}

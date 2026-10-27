@@ -1,0 +1,24 @@
+namespace: hyperscale
+components:
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    args: ["--config.file=/config/prometheus.yaml", "--storage.tsdb.path=/data", "--storage.tsdb.retention.time=24h"]
+    ports: [{name: http, containerPort: 9090}]
+    config: prometheus.yaml
+    memory: 512Mi
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    args: ["--config=/config/otel.yaml"]
+    ports: [{name: zipkin, containerPort: 9411}, {name: otlp, containerPort: 4317}]
+    config: otel.yaml
+    memory: 256Mi
+  tempo:
+    image: grafana/tempo:2.7.2
+    args: ["-config.file=/config/tempo.yaml"]
+    ports: [{name: http, containerPort: 3200}, {name: otlp, containerPort: 4317}]
+    config: tempo.yaml
+    memory: 512Mi
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports: [{name: http, containerPort: 3000}]
+    memory: 256Mi

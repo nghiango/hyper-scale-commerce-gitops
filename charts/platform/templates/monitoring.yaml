@@ -1,0 +1,165 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: local-monitoring
+  namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: local-monitoring
+  namespace: {{ .Values.namespace }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: local-monitoring
+  namespace: {{ .Values.namespace }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: local-monitoring}
+subjects:
+  - {kind: ServiceAccount, name: local-monitoring, namespace: {{ .Values.namespace }}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-monitoring
+  namespace: {{ .Values.namespace }}
+data:
+{{- range $path, $_ := .Files.Glob "files/*" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | indent 4 }}
+{{- end }}
+{{- range $name, $component := .Values.components }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  selector: {local-component: {{ $name }}}
+  ports:
+{{- range $component.ports }}
+    - name: {{ .name }}
+      port: {{ .containerPort }}
+      targetPort: {{ .containerPort }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {local-component: {{ $name }}}
+  template:
+    metadata:
+      labels:
+        local-component: {{ $name }}
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: monitoring
+      annotations:
+        checksum/config: {{ ($.Files.Glob "files/*").AsConfig | sha256sum }}
+    spec:
+      serviceAccountName: local-monitoring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: {{ $name }}
+          image: {{ $component.image }}
+          {{- with $component.args }}
+          args: {{ toJson . }}
+          {{- end }}
+          ports: {{ toJson $component.ports }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: '1', memory: {{ $component.memory }}}
+          readinessProbe:
+            tcpSocket: {port: {{ (index $component.ports 0).containerPort }}}
+            initialDelaySeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /config}
+            {{- if eq $name "grafana" }}
+            - {name: data, mountPath: /var/lib/grafana}
+            - {name: config, mountPath: /etc/grafana/provisioning/datasources/datasources.yaml, subPath: datasources.yaml}
+            - {name: config, mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml, subPath: dashboards.yaml}
+            - {name: config, mountPath: /dashboards/dashboard.json, subPath: dashboard.json}
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: local-platform-credentials, key: grafana-password}
+            {{- end }}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: config
+          configMap: {name: local-monitoring}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: local-monitoring-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/component: monitoring}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: hyperscale-commerce}
+      ports:
+        - {port: 9411, protocol: TCP}
+        - {port: 4317, protocol: TCP}
+        - {port: 3200, protocol: TCP}
+        - {port: 9090, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: local-monitoring-scrape
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [app, order-query]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/component: monitoring}
+      ports:
+        - {port: 8080, protocol: TCP}
+        - {port: 8081, protocol: TCP}
+---
+# Endpoint discovery requires Kubernetes API egress in addition to DNS/internal egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-discovery-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels: {local-component: prometheus}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}

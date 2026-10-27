@@ -1,0 +1,47 @@
+# Commerce auto-sync is intentionally disabled until the first verified CI release.
+# Configure Argo read credentials before applying these Applications.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hyperscale-local
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:nghiango/hyper-scale-commerce-gitops.git
+    targetRevision: main
+    path: charts/commerce
+    helm:
+      valueFiles: [../../environments/local/values.yaml]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hyperscale
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: app
+      jsonPointers: [/spec/replicas]
+    - group: apps
+      kind: Deployment
+      name: order-query
+      jsonPointers: [/spec/replicas]
+  syncPolicy:
+    syncOptions: [CreateNamespace=true, RespectIgnoreDifferences=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hyperscale-local-platform
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:nghiango/hyper-scale-commerce-gitops.git
+    targetRevision: main
+    path: charts/platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hyperscale
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    syncOptions: [CreateNamespace=true]

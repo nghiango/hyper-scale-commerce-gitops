@@ -1,0 +1,13 @@
+groups:
+  - name: local-delivery
+    rules:
+      - alert: ApplicationScrapeDown
+        expr: up{job="applications"} == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "Application metrics scrape is failing"}
+      - alert: ApplicationTargetsMissing
+        expr: absent(up{job="applications"})
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "No application scrape targets discovered"}

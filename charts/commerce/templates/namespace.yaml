@@ -1,0 +1,11 @@
+{{- if not (lookup "v1" "Namespace" "" .Values.global.namespace) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    pod-security.kubernetes.io/enforce: {{ .Values.security.podSecurityStandards.enforce }}
+    pod-security.kubernetes.io/audit: {{ .Values.security.podSecurityStandards.enforce }}
+    pod-security.kubernetes.io/warn: {{ .Values.security.podSecurityStandards.enforce }}
+{{- end }}
