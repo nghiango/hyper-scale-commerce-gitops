@@ -82,7 +82,7 @@ kafka:
   replicaCount: 3
   image:
     repository: confluentinc/cp-kafka
-    tag: 7.6.0
+    tag: 7.7.0
   storage:
     size: 5Gi
   resources:
