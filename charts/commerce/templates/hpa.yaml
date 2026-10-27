@@ -21,12 +21,14 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.app.hpa.targetCPUUtilizationPercentage }}
+    {{- if ne .Values.app.hpa.memoryMetricEnabled false }}
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
           averageUtilization: {{ .Values.app.hpa.targetMemoryUtilizationPercentage }}
+    {{- end }}
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 60
@@ -65,12 +67,14 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.orderQuery.hpa.targetCPUUtilizationPercentage }}
+    {{- if ne .Values.orderQuery.hpa.memoryMetricEnabled false }}
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
           averageUtilization: {{ .Values.orderQuery.hpa.targetMemoryUtilizationPercentage }}
+    {{- end }}
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 60

@@ -139,7 +139,7 @@ metadata:
   name: ingress-pdb
   namespace: {{ .Values.global.namespace }}
 spec:
-  minAvailable: 1
+  minAvailable: {{ if .Values.localDelivery.enabled }}0{{ else }}1{{ end }}
   selector:
     matchLabels:
       app.kubernetes.io/component: ingress

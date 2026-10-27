@@ -4,22 +4,37 @@ global:
   revision: "ff8c4380feae3cceb2f5e9775851590c75256907"
   imagePullPolicy: Always
 app:
-  replicaCount: 3
+  replicaCount: 1
+  hpa:
+    minReplicas: 1
+    maxReplicas: 3
+    memoryMetricEnabled: false
   image:
     repository: hyperscale-k8s-worker:30500/hyperscale/hyperscale-app
     tag: "ff8c4380feae3cceb2f5e9775851590c75256907"
 orderQuery:
-  replicaCount: 3
+  replicaCount: 1
+  hpa:
+    minReplicas: 1
+    maxReplicas: 3
+    memoryMetricEnabled: false
   image:
     repository: hyperscale-k8s-worker:30500/hyperscale/hyperscale-order-query
     tag: "ff8c4380feae3cceb2f5e9775851590c75256907"
+kafka:
+  replicaCount: 3
+etcd:
+  replicaCount: 3
+ingress:
+  replicaCount: 1
 postgresHa:
+  replicaCount: 3
   image:
     repository: hyperscale-k8s-worker:30500/hyperscale/hyperscale-patroni
     tag: "ff8c4380feae3cceb2f5e9775851590c75256907"
 localDelivery:
   enabled: true
-  # 2 services * (8 max + 1 surge) * (8 primary + 4 replica) = 216 connections.
+  # 2 services * (3 max + 1 surge) * (8 primary + 4 replica) = 96 connections.
   # Reserve additional headroom for migrations, Patroni and operator sessions.
   primaryPoolSize: 8
   replicaPoolSize: 4

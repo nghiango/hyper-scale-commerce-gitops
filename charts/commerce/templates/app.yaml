@@ -21,7 +21,7 @@ metadata:
   name: app-pdb
   namespace: {{ .Values.global.namespace }}
 spec:
-  minAvailable: 2
+  minAvailable: {{ if .Values.localDelivery.enabled }}0{{ else }}2{{ end }}
   selector:
     matchLabels:
       app.kubernetes.io/component: app
