@@ -1,0 +1,15 @@
+apiVersion: v2
+name: hyperscale-commerce
+description: HyperScale Commerce Platform Helm Chart for Multi-Node Kubernetes Reliability
+type: application
+version: 0.1.0
+appVersion: "0.0.1-SNAPSHOT"
+keywords:
+  - hyperscale
+  - commerce
+  - microservices
+  - event-driven
+  - postgres-ha
+  - kafka-ha
+maintainers:
+  - name: HyperScale Architecture Team

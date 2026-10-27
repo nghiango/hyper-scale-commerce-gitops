@@ -1,4 +1,4 @@
-# Configure Argo read credentials before applying these Applications.
+# Configure repository read credentials and push the first generated release before applying.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -9,9 +9,9 @@ spec:
   source:
     repoURL: git@github.com:nghiango/hyper-scale-commerce-gitops.git
     targetRevision: main
-    path: charts/commerce
+    path: charts/application
     helm:
-      valueFiles: [../../environments/local/values.yaml]
+      valueFiles: [../../environments/local/application-values.yaml]
   destination:
     server: https://kubernetes.default.svc
     namespace: hyperscale
@@ -27,6 +27,26 @@ spec:
   syncPolicy:
     automated: {prune: false, selfHeal: true}
     syncOptions: [CreateNamespace=true, RespectIgnoreDifferences=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hyperscale-local-infrastructure
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:nghiango/hyper-scale-commerce-gitops.git
+    targetRevision: main
+    path: charts/infrastructure
+    helm:
+      valueFiles: [../../environments/local/infrastructure-values.yaml]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hyperscale
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    syncOptions: [CreateNamespace=true]
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

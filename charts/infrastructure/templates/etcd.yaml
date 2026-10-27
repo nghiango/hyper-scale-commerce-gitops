@@ -1,0 +1,136 @@
+{{- if .Values.etcd.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-headless
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: etcd
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: client
+      port: 2379
+      targetPort: 2379
+    - name: peer
+      port: 2380
+      targetPort: 2380
+  selector:
+    app.kubernetes.io/component: etcd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: etcd
+spec:
+  ports:
+    - name: client
+      port: 2379
+      targetPort: 2379
+  selector:
+    app.kubernetes.io/component: etcd
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: etcd-pdb
+  namespace: {{ .Values.global.namespace }}
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: etcd
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: etcd
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: etcd
+spec:
+  serviceName: etcd-headless
+  podManagementPolicy: Parallel
+  replicas: {{ .Values.etcd.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: etcd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: etcd
+    spec:
+      serviceAccountName: hyperscale-service-account
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: etcd
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: etcd
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.etcd.image.repository }}:{{ .Values.etcd.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: client
+              containerPort: 2379
+            - name: peer
+              containerPort: 2380
+          env:
+            - name: ETCD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ETCD_DATA_DIR
+              value: /etcd-data
+            - name: ETCD_LISTEN_CLIENT_URLS
+              value: http://0.0.0.0:2379
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              value: http://$(ETCD_NAME).etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2379
+            - name: ETCD_LISTEN_PEER_URLS
+              value: http://0.0.0.0:2380
+            - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
+              value: http://$(ETCD_NAME).etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2380
+            - name: ETCD_INITIAL_CLUSTER_TOKEN
+              value: hyperscale-etcd-k8s
+            - name: ETCD_INITIAL_CLUSTER
+              value: "etcd-0=http://etcd-0.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2380,etcd-1=http://etcd-1.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2380,etcd-2=http://etcd-2.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2380"
+            - name: ETCD_INITIAL_CLUSTER_STATE
+              value: new
+          resources:
+            {{- toYaml .Values.etcd.resources | nindent 12 }}
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /etcd-data
+  volumeClaimTemplates:
+    - metadata:
+        name: etcd-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: {{ .Values.global.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.etcd.storage.size }}
+{{- end }}
