@@ -1,0 +1,170 @@
+{{- if .Values.logging.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-logging
+  namespace: {{ .Values.namespace }}
+data:
+{{- range $path, $_ := .Files.Glob "logging/*" }}
+  {{ base $path }}: |
+{{ tpl ($.Files.Get $path) $ | indent 4 }}
+{{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.logging.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.logging.storageSize }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: local-grafana-data
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.logging.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.logging.grafanaStorageSize }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: local-log-reader
+  namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: local-log-reader
+  namespace: {{ .Values.namespace }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: local-log-reader
+  namespace: {{ .Values.namespace }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: local-log-reader}
+subjects:
+  - {kind: ServiceAccount, name: local-log-reader, namespace: {{ .Values.namespace }}}
+{{- range $name := list "loki" "alloy" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  selector: {local-component: {{ $name }}}
+  ports:
+    - name: http
+      port: {{ if eq $name "loki" }}3100{{ else }}12345{{ end }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {local-component: {{ $name }}}
+  template:
+    metadata:
+      labels:
+        local-component: {{ $name }}
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: monitoring
+      annotations:
+        checksum/config: {{ ($.Files.Glob "logging/*").AsConfig | sha256sum }}
+    spec:
+      {{- if eq $name "alloy" }}
+      serviceAccountName: local-log-reader
+      {{- else }}
+      automountServiceAccountToken: false
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: {{ $name }}
+          image: {{ if eq $name "loki" }}{{ $.Values.logging.lokiImage }}{{ else }}{{ $.Values.logging.alloyImage }}{{ end }}
+          {{- if eq $name "loki" }}
+          args: ["-config.file=/config/loki.yaml"]
+          {{- else }}
+          args: [run, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/data, /config/config.alloy]
+          {{- end }}
+          ports:
+            - {name: http, containerPort: {{ if eq $name "loki" }}3100{{ else }}12345{{ end }}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: '1', memory: {{ if eq $name "loki" }}768Mi{{ else }}256Mi{{ end }}}
+          readinessProbe:
+            httpGet: {path: {{ if eq $name "loki" }}/ready{{ else }}/-/ready{{ end }}, port: http}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /config, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: local-logging}
+        - name: data
+          {{- if eq $name "loki" }}
+          persistentVolumeClaim: {claimName: loki-data}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels: {local-component: loki}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: local-component, operator: In, values: [alloy, grafana]}
+      ports: [{port: 3100, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alloy-api-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels: {local-component: alloy}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
+{{- end }}

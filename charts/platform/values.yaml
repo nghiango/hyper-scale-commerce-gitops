@@ -31,3 +31,11 @@ components:
       - {name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS, value: kafka:9092}
       - {name: KAFKA_CLUSTERS_0_READONLY, value: "true"}
       - {name: DYNAMIC_CONFIG_ENABLED, value: "false"}
+
+logging:
+  enabled: true
+  storageClass: standard
+  storageSize: 10Gi
+  grafanaStorageSize: 1Gi
+  lokiImage: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
+  alloyImage: grafana/alloy:v1.21.2@sha256:89a5a320168387336b9ac3c850609c3ba7757eadd4ae5f1d819deb35e9854b18

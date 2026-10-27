@@ -1,0 +1,49 @@
+auth_enabled: false
+server:
+  http_listen_port: 3100
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /data
+  storage:
+    filesystem:
+      chunks_directory: /data/chunks
+      rules_directory: /data/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+ingester:
+  wal:
+    enabled: true
+    dir: /data/wal
+compactor:
+  working_directory: /data/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+  retention_delete_delay: 2m
+limits_config:
+  retention_period: 24h
+  ingestion_rate_mb: 1
+  ingestion_burst_size_mb: 2
+  max_query_lookback: 24h
+  max_query_parallelism: 2
+  split_queries_by_interval: 15m
+  reject_old_samples: true
+  reject_old_samples_max_age: 24h
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 32
+analytics:
+  reporting_enabled: false
