@@ -123,13 +123,13 @@ spec:
             - name: KAFKA_CONTROLLER_LISTENER_NAMES
               value: "CONTROLLER"
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
-              value: "{{- $voters := list -}}{{- range $i := until (int .Values.kafka.replicaCount) -}}{{- $voters = append $voters (printf "%d@kafka-%d.kafka-headless.%s.svc.cluster.local:9093" (add $i 1) $i $.Values.global.namespace) -}}{{- end -}}{{ join "," $voters }}"
+              value: "1@kafka-0.kafka-headless.{{ .Values.global.namespace }}.svc.cluster.local:9093,2@kafka-1.kafka-headless.{{ .Values.global.namespace }}.svc.cluster.local:9093,3@kafka-2.kafka-headless.{{ .Values.global.namespace }}.svc.cluster.local:9093"
             - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
-              value: "{{ min (int .Values.kafka.replicaCount) 3 }}"
+              value: "3"
             - name: KAFKA_DEFAULT_REPLICATION_FACTOR
-              value: "{{ min (int .Values.kafka.replicaCount) 3 }}"
+              value: "3"
             - name: KAFKA_MIN_INSYNC_REPLICAS
-              value: "{{ min (int .Values.kafka.replicaCount) 2 }}"
+              value: "2"
             - name: KAFKA_HEAP_OPTS
               value: "-Xms768m -Xmx768m -XX:+UseG1GC"
             - name: CLUSTER_ID
