@@ -22,3 +22,12 @@ components:
     image: grafana/grafana:11.6.0
     ports: [{name: http, containerPort: 3000}]
     memory: 256Mi
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0@sha256:7cda86a33344160309fdb65146332e4da65db81a945614f2fe32e210803f6fd1
+    ports: [{name: http, containerPort: 8080}]
+    memory: 768Mi
+    env:
+      - {name: KAFKA_CLUSTERS_0_NAME, value: hyperscale-local}
+      - {name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS, value: kafka:9092}
+      - {name: KAFKA_CLUSTERS_0_READONLY, value: "true"}
+      - {name: DYNAMIC_CONFIG_ENABLED, value: "false"}

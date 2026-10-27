@@ -58,3 +58,32 @@ Configuration was seeded from the application working tree on 2026-10-27.
 It is not a claim of successful CI qualification: the last full build failed
 the existing catalog SLO check (163.5 ms p95 versus a 100 ms limit). Jenkins
 onboarding, deploy keys and the GitHub webhook route still need to be connected.
+
+## Local Kafka inspection and k9s
+
+The platform chart includes Kafbat Kafka UI v1.5.0, pinned by image digest, with
+read-only cluster access and dynamic configuration disabled. The dashboard
+Service is ClusterIP only. Use this localhost-only forward:
+
+```bash
+kubectl --context kind-hyperscale-k8s -n hyperscale port-forward --address 127.0.0.1 svc/kafka-ui 8082:8080
+```
+
+The UI connects internally to `kafka:9092`. Kafka infrastructure may be started
+with a resource-selective sync of the held commerce Application: only the Kafka
+StatefulSet, kafka/kafka-headless Services, kafka-pdb and hyperscale-service-account.
+The application repository's `local-ci/scripts/start-kafka.sh` requires a full
+GitOps commit SHA and refuses to run if commerce auto-sync is configured.
+Do not enable full commerce sync while pending-ci image tags remain. Kafka uses
+three local 5 Gi PVCs and the existing RF=3/min ISR=2 settings. No application
+release or high-availability qualification is implied by broker startup.
+
+k9s is already installed on the local Mac. Inspect this cluster with:
+
+```bash
+k9s --context kind-hyperscale-k8s --namespace hyperscale --readonly
+```
+
+Jenkins and Argo deploy keys are configured. The owner selected local Git
+polling, not a public webhook; source CI publication and a passing catalog SLO
+gate remain prerequisites for application promotion.
