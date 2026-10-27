@@ -1,5 +1,5 @@
 apiVersion: v2
-name: hyperscale-commerce
+name: hyperscale-application
 description: HyperScale Commerce Platform Helm Chart for Multi-Node Kubernetes Reliability
 type: application
 version: 0.1.0
