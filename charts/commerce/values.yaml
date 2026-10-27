@@ -10,7 +10,7 @@ global:
 # ---------------------------------------------------------------------------
 ingress:
   enabled: true
-  replicaCount: 2
+  replicaCount: 1
   rateLimit: 300000
   image:
     repository: haproxy
@@ -79,7 +79,7 @@ orderQuery:
 # ---------------------------------------------------------------------------
 kafka:
   enabled: true
-  replicaCount: 3
+  replicaCount: 1
   image:
     repository: confluentinc/cp-kafka
     tag: 7.7.0
@@ -95,7 +95,7 @@ kafka:
 
 etcd:
   enabled: true
-  replicaCount: 3
+  replicaCount: 1
   image:
     repository: quay.io/coreos/etcd
     tag: v3.5.12
@@ -111,7 +111,7 @@ etcd:
 
 postgresHa:
   enabled: true
-  replicaCount: 3
+  replicaCount: 1
   image:
     repository: hyperscale-patroni
     tag: "16"

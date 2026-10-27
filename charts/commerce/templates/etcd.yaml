@@ -116,7 +116,7 @@ spec:
             - name: ETCD_INITIAL_CLUSTER_TOKEN
               value: hyperscale-etcd-k8s
             - name: ETCD_INITIAL_CLUSTER
-              value: "etcd-0=http://etcd-0.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2380,etcd-1=http://etcd-1.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2380,etcd-2=http://etcd-2.etcd-headless.{{ .Values.global.namespace }}.svc.cluster.local:2380"
+              value: "{{- $members := list -}}{{- range $i := until (int .Values.etcd.replicaCount) -}}{{- $members = append $members (printf "etcd-%d=http://etcd-%d.etcd-headless.%s.svc.cluster.local:2380" $i $i $.Values.global.namespace) -}}{{- end -}}{{ join "," $members }}"
             - name: ETCD_INITIAL_CLUSTER_STATE
               value: new
           resources:
