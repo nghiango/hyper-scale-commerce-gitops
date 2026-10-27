@@ -36,7 +36,7 @@ ingress:
 # ---------------------------------------------------------------------------
 app:
   enabled: true
-  replicaCount: 5
+  replicaCount: 1
   image:
     repository: hyperscale-commerce-app
     tag: 0.0.1-SNAPSHOT
@@ -49,14 +49,14 @@ app:
       memory: 1024Mi
   hpa:
     enabled: true
-    minReplicas: 3
-    maxReplicas: 8
+    minReplicas: 1
+    maxReplicas: 3
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 75
 
 orderQuery:
   enabled: true
-  replicaCount: 5
+  replicaCount: 1
   image:
     repository: hyperscale-commerce-order-query
     tag: 0.0.1-SNAPSHOT
@@ -69,8 +69,8 @@ orderQuery:
       memory: 1024Mi
   hpa:
     enabled: true
-    minReplicas: 3
-    maxReplicas: 8
+    minReplicas: 1
+    maxReplicas: 3
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 75
 
