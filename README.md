@@ -1,89 +1,75 @@
 # HyperScale Commerce GitOps
 
-Desired-state configuration for the local ARM64 Kubernetes environment.
+Desired state for the local ARM64 Kubernetes cluster (`kind-hyperscale-k8s`).
 
-## Layout
+## Independent ownership
 
-- `charts/commerce/`: application, Kafka, Redis, PostgreSQL/Patroni, etcd and ingress chart.
-- `charts/platform/`: Prometheus, Grafana, OpenTelemetry Collector and Tempo chart.
-- `environments/local/values.yaml`: local registry images, resource/pool settings and image tags.
-- `argocd/applications.yaml`: Argo CD Applications targeting the two charts.
+| Argo Application | Chart | Resources |
+|---|---|---|
+| hyperscale-local | charts/application | App, order-query, their Services, HPAs and PDBs |
+| hyperscale-local-infrastructure | charts/infrastructure | Kafka, PostgreSQL/Patroni, etcd, Redis, ingress, backups and shared namespace/security |
+| hyperscale-local-platform | charts/platform | Prometheus, Grafana, Collector, Tempo, Kafka UI, Loki and Alloy |
 
-## Bootstrap state
+Local overrides are `environments/local/application-values.yaml` and
+`environments/local/infrastructure-values.yaml`. Platform settings are in its
+chart values. The legacy commerce chart and combined values were removed after
+the scoped pipeline was merged and successfully published an application release.
 
-This initial commit contains configuration only. The `pending-ci` image tags
-are deliberate placeholders, not published application releases. Commerce
-auto-sync is disabled in the bootstrap Application. Do not manually sync it
-until Jenkins has published verified images and replaced these values.
+## Releases
 
-The local registry is `hyperscale-k8s-worker:30500` from Docker/kind, exposed
-as `localhost:5001` on the host. The application repository contains bootstrap
-scripts and the detailed runbook at `docs/operations/local-cicd.md`. Bootstrap
-the named local kind cluster, registry and metrics-server before deploying.
+Jenkins polls the application repository. Its default `RELEASE_SCOPE=application`
+builds app/query ARM64 images and updates only application chart/values.
+`infrastructure` explicitly builds Patroni and updates its chart/values;
+`platform` updates observability; `bootstrap` initializes all three scopes.
+Templates originate in the application repository: change that source for durable
+updates, since Jenkins replaces the selected chart on the next scoped release.
+Images use full application commit SHA tags. Registry tag immutability is not
+technically enforced. Infrastructure must be initialized before application
+services can use its dependencies; independent Applications do not imply automatic
+cross-Application health ordering.
 
-Jenkins runs the application build and unit/integration tests, pushes ARM64
-app/query/Patroni images, then updates both chart directories and local values
-in one commit here. It uses a dedicated SSH write deploy key. Argo CD uses a
-separate read-only key and the canonical repository URL:
-`git@github.com:nghiango/hyper-scale-commerce-gitops.git`. The host's
-`personal.github.com` alias is not available inside cluster containers.
-
-After the first green CI release, configure Argo repository credentials, apply
-the Applications and enable commerce auto-sync with pruning disabled:
+Apply the registered Application definitions after publishing available charts
+and images and configuring Argo's repository read credentials:
 
 ```bash
 kubectl --context kind-hyperscale-k8s apply -f argocd/applications.yaml
-kubectl --context kind-hyperscale-k8s -n argocd patch application hyperscale-local \
-  --type merge -p '{"spec":{"syncPolicy":{"automated":{"prune":false,"selfHeal":true}}}}'
 ```
 
-HPA owns deployment replicas; Argo ignores replica drift. Roll back by reverting
-a verified release commit, after checking database migration compatibility.
-No secrets or private keys belong in this repository. Grafana's admin password
-is supplied by the bootstrap-created `local-platform-credentials` Secret.
-The inherited commerce chart contains public local-development database/Redis
-defaults; do not reuse them in shared or production environments. Monitoring
-uses disposable storage; registry and application data use local PVCs.
+Auto-sync/self-heal are enabled, pruning is disabled, and HPA owns app/query
+replica counts. Argo renders Helm; do not also run Helm upgrades on these resources.
+Roll back a normal release with a reviewed Git revert after checking database
+migration compatibility. Ownership migration rollback needs an explicit paused
+transfer; never cascade-delete Applications or PVCs to restore an old layout.
 
-## Validate without deploying
+## Validation
 
 ```bash
-helm lint charts/commerce -f environments/local/values.yaml
+helm lint charts/application -f environments/local/application-values.yaml
+helm lint charts/infrastructure -f environments/local/infrastructure-values.yaml
 helm lint charts/platform
-helm template hyperscale charts/commerce -f environments/local/values.yaml > /tmp/hyperscale-commerce.yaml
+helm template hyperscale charts/application -f environments/local/application-values.yaml > /tmp/hyperscale-application.yaml
+helm template hyperscale charts/infrastructure -f environments/local/infrastructure-values.yaml > /tmp/hyperscale-infrastructure.yaml
 helm template platform charts/platform > /tmp/hyperscale-platform.yaml
 ```
 
-Configuration was seeded from the application working tree on 2026-10-27.
-It is not a claim of successful CI qualification: the last full build failed
-the existing catalog SLO check (163.5 ms p95 versus a 100 ms limit). Jenkins
-onboarding, deploy keys and the GitHub webhook route still need to be connected.
+## Local inspection
 
-## Local Kafka inspection and k9s
-
-The platform chart includes Kafbat Kafka UI v1.5.0, pinned by image digest, with
-read-only cluster access and dynamic configuration disabled. The dashboard
-Service is ClusterIP only. Use this localhost-only forward:
+Grafana: localhost:3000, Argo CD: https://localhost:8443, Kafka UI: localhost:8082
+when the respective port-forward is running. Kafka UI is read-only.
 
 ```bash
+kubectl --context kind-hyperscale-k8s -n hyperscale port-forward --address 127.0.0.1 svc/grafana 3000:3000
+# In separate terminals when needed:
 kubectl --context kind-hyperscale-k8s -n hyperscale port-forward --address 127.0.0.1 svc/kafka-ui 8082:8080
-```
-
-The UI connects internally to `kafka:9092`. Kafka infrastructure may be started
-with a resource-selective sync of the held commerce Application: only the Kafka
-StatefulSet, kafka/kafka-headless Services, kafka-pdb and hyperscale-service-account.
-The application repository's `local-ci/scripts/start-kafka.sh` requires a full
-GitOps commit SHA and refuses to run if commerce auto-sync is configured.
-Do not enable full commerce sync while pending-ci image tags remain. Kafka uses
-three local 5 Gi PVCs and the existing RF=3/min ISR=2 settings. No application
-release or high-availability qualification is implied by broker startup.
-
-k9s is already installed on the local Mac. Inspect this cluster with:
-
-```bash
 k9s --context kind-hyperscale-k8s --namespace hyperscale --readonly
 ```
 
-Jenkins and Argo deploy keys are configured. The owner selected local Git
-polling, not a public webhook; source CI publication and a passing catalog SLO
-gate remain prerequisites for application promotion.
+For logs, use Grafana Explore → Loki and `{namespace="hyperscale"}`. Alloy reads
+namespace pod logs through the Kubernetes API. Loki retains logs for 24 hours on
+a 10Gi PVC; Grafana has a separate persistent database. Prometheus/Tempo use local
+disposable storage. None of this establishes production durability or availability.
+
+No private keys or other secrets belong here. Existing chart database/Redis
+credentials are public development defaults, not production credentials. Jenkins
+and Argo use separate GitOps deploy keys. Credentials and setup/runbooks live in
+the application repository's local CI configuration and operations documentation.
