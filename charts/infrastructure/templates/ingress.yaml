@@ -28,8 +28,9 @@ data:
         timeout http-request 10s
 
     peers mypeers
-        peer ingress-0 ingress-0.haproxy-peers.{{ .Values.global.namespace }}.svc.cluster.local:1024
-        peer ingress-1 ingress-1.haproxy-peers.{{ .Values.global.namespace }}.svc.cluster.local:1024
+{{- range $i := until (int .Values.ingress.replicaCount) }}
+        peer ingress-{{ $i }} ingress-{{ $i }}.haproxy-peers.{{ $.Values.global.namespace }}.svc.cluster.local:1024
+{{- end }}
 
     frontend stats
         bind *:8404
