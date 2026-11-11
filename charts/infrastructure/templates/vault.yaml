@@ -26,6 +26,109 @@ subjects:
     namespace: {{ .Values.global.namespace }}
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: vault
+data:
+  vault.hcl: |
+    storage "file" {
+      path = "/vault/data"
+    }
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      tls_disable = true
+    }
+    api_addr      = "http://vault.{{ .Values.global.namespace }}.svc:8200"
+    disable_mlock = true
+    ui            = true
+  # Runs in the vault-init sidecar. First boot: initializes Vault and stores the
+  # unseal key + root token in init.json on the PVC (cluster-local only, never
+  # committed). Then auto-unseals whenever sealed and performs the one-time
+  # bootstrap: kubernetes auth, eso policy/role, and seeding any missing KV
+  # secrets. Seeds adopt values from existing Kubernetes Secrets when present
+  # (SEED_* env vars) so migrating off a previous secret source does not rotate
+  # credentials; otherwise random values are generated.
+  init.sh: |
+    #!/bin/sh
+    set -e
+    export VAULT_ADDR="http://127.0.0.1:8200"
+    DATA=/vault/data
+    INIT=$DATA/init.json
+    FLAG=$DATA/.bootstrapped
+
+    echo "Waiting for Vault API..."
+    until vault status 2>/dev/null | grep -q "Initialized"; do sleep 2; done
+
+    if [ ! -f "$INIT" ]; then
+      echo "Initializing Vault..."
+      vault operator init -key-shares=1 -key-threshold=1 > "$INIT"
+      chmod 600 "$INIT"
+    fi
+
+    UNSEAL_KEY=$(awk '/Unseal Key 1/{print $NF}' "$INIT")
+    export VAULT_TOKEN=$(awk '/Initial Root Token/{print $NF}' "$INIT")
+
+    gen() { head -c 24 /dev/urandom | base64 | tr -d '\n'; }
+
+    while true; do
+      SEALED=$(vault status 2>/dev/null | awk '/^Sealed/{print $2}')
+      if [ "$SEALED" = "true" ]; then
+        vault operator unseal "$UNSEAL_KEY" || true
+        sleep 2
+        continue
+      fi
+      if [ ! -f "$FLAG" ] && [ "$SEALED" = "false" ]; then
+        vault auth enable kubernetes 2>/dev/null || true
+        vault write auth/kubernetes/config \
+          kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+        vault policy write eso - <<'EOF'
+    path "secret/data/hyperscale/*" {
+      capabilities = ["read"]
+    }
+    EOF
+        vault write auth/kubernetes/role/eso \
+          bound_service_account_names=vault-auth \
+          bound_service_account_namespaces="$VAULT_NAMESPACE_NAME" \
+          policies=eso ttl=1h
+        vault kv get secret/hyperscale/postgres >/dev/null 2>&1 || \
+          vault kv put secret/hyperscale/postgres \
+            password="${SEED_POSTGRES_PASSWORD:-$(gen)}" \
+            replicatorPassword="${SEED_REPLICATOR_PASSWORD:-$(gen)}"
+        vault kv get secret/hyperscale/redis >/dev/null 2>&1 || \
+          vault kv put secret/hyperscale/redis \
+            password="${SEED_REDIS_PASSWORD:-$(gen)}"
+        vault kv get secret/hyperscale/platform >/dev/null 2>&1 || \
+          vault kv put secret/hyperscale/platform \
+            grafanaPassword="${SEED_GRAFANA_PASSWORD:-$(gen)}"
+        touch "$FLAG"
+        echo "Bootstrap complete."
+      fi
+      sleep 15
+    done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-headless
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: vault
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+  selector:
+    app.kubernetes.io/component: vault
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: vault
@@ -42,7 +145,7 @@ spec:
     app.kubernetes.io/component: vault
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: vault
   namespace: {{ .Values.global.namespace }}
@@ -50,9 +153,8 @@ metadata:
     app.kubernetes.io/name: hyperscale-commerce
     app.kubernetes.io/component: vault
 spec:
+  serviceName: vault-headless
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: vault
@@ -68,6 +170,7 @@ spec:
         runAsUser: 100
         runAsGroup: 1000
         fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -78,18 +181,14 @@ spec:
               drop: ["ALL"]
           image: "{{ .Values.vault.image.repository }}:{{ .Values.vault.image.tag }}"
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-          # Dev mode: in-memory storage, auto-unsealed, fixed root token.
-          # Local environments only — secrets are wiped on restart and re-seeded
-          # by the vault-bootstrap PostSync job.
           args:
             - server
-            - -dev
-            - -dev-listen-address=0.0.0.0:8200
+            - -config=/vault/config/vault.hcl
           env:
-            - name: VAULT_DEV_ROOT_TOKEN_ID
-              value: {{ .Values.vault.devRootToken | quote }}
             - name: SKIP_SETCAP
               value: "true"
+            - name: VAULT_ADDR
+              value: "http://127.0.0.1:8200"
           ports:
             - name: http
               containerPort: 8200
@@ -101,4 +200,66 @@ spec:
             periodSeconds: 5
           resources:
             {{- toYaml .Values.vault.resources | nindent 12 }}
+          volumeMounts:
+            - name: vault-config
+              mountPath: /vault/config
+            - name: vault-data
+              mountPath: /vault/data
+        - name: vault-init
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.vault.image.repository }}:{{ .Values.vault.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: [/bin/sh, /vault/config/init.sh]
+          env:
+            - name: VAULT_NAMESPACE_NAME
+              value: {{ .Values.global.namespace | quote }}
+            # Adopt existing secrets on first seed so no rotation is needed
+            # when migrating; optional so a clean environment still works.
+            - name: SEED_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+                  optional: true
+            - name: SEED_REPLICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: replicator-password
+                  optional: true
+            - name: SEED_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: redis-password
+                  optional: true
+            - name: SEED_GRAFANA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: local-platform-credentials
+                  key: grafana-password
+                  optional: true
+          resources:
+            {{- toYaml .Values.vault.resources | nindent 12 }}
+          volumeMounts:
+            - name: vault-config
+              mountPath: /vault/config
+            - name: vault-data
+              mountPath: /vault/data
+      volumes:
+        - name: vault-config
+          configMap:
+            name: vault-config
+  volumeClaimTemplates:
+    - metadata:
+        name: vault-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: {{ .Values.global.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.vault.storage.size }}
 {{- end }}

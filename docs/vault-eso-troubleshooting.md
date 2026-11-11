@@ -1,8 +1,6 @@
 # Vault + External Secrets Operator — Migration Notes & Troubleshooting
 
-Evidence log from moving hardcoded credentials out of git into Vault
-(dev mode, in-cluster) synced by External Secrets Operator (ESO) on the
-`kind-hyperscale-k8s` cluster. Documents every problem hit, its root cause,
+Evidence log from moving hardcoded credentials out of git into Vault (dev mode, in-cluster) synced by External Secrets Operator (ESO) on the `kind-hyperscale-k8s` cluster. Documents every problem hit, its root cause,
 and the fix that landed.
 
 ## Initial state (the problem being solved)
@@ -117,17 +115,33 @@ failed auth.
 **Fix:** Restarted `redis-0` to pick up the new Secret. General rule: after any
 credential change, restart both the server *and* its clients.
 
+## Follow-up: persistent Vault (replaced dev mode)
+
+Dev mode was upgraded to a real Vault deployment:
+
+- `vault.yaml` is now a **StatefulSet** with a PVC-backed `file` storage
+  backend — secrets survive pod restarts.
+- A `vault-init` **sidecar** in the same pod replaces the bootstrap Job:
+  on first boot it runs `vault operator init`, stores the unseal key + root
+  token in `init.json` **on the PVC** (never committed, never leaves the
+  cluster), then loops: unseal when sealed, and run the one-time bootstrap
+  (kubernetes auth, `eso` policy/role, KV seeding) once.
+- `devRootToken` and `vault-bootstrap.yaml` were removed — **no token is
+  committed anywhere**.
+- Migration trick used here: the sidecar's seed step adopts existing secret
+  values via optional `secretKeyRef` env vars (`SEED_*`), so switching from the
+  dev-mode Vault did not rotate any credentials or require DB `ALTER USER`.
+- Remaining caveat: unseal key on the same PVC as sealed data is acceptable
+  locally but is *not* production-grade — real deployments should use cloud-KMS
+  or transit auto-unseal (separate Vault cluster).
+
 ## Operational notes
 
-- Dev-mode Vault is in-memory: on restart all secrets vanish. The next ArgoCD
-  sync re-runs the bootstrap job (Sync hook) and re-seeds **new random**
-  passwords — DB roles and dependent pods then need re-rotation/restart.
-- `vault.devRootToken: "root"` is committed intentionally — dev mode is
-  local-only. Real environments need a persistent Vault with auto-unseal and no
-  committed token.
 - Sync order: `external-secrets` must exist before the infra app or
   ExternalSecret/ClusterSecretStore applies fail on missing CRDs (self-heals
   via auto-sync retry).
+- Vault restarts are now transparent: data persists on the PVC and the sidecar
+  re-unseals automatically. No re-seeding, no credential rotation.
 
 ## Final verified state
 

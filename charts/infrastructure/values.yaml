@@ -178,17 +178,18 @@ localDelivery:
   tracingEndpoint: http://otel-collector:9411/api/v2/spans
 
 # ---------------------------------------------------------------------------
-# Vault (dev mode — local environments only; secrets are in-memory and
-# re-seeded by the vault-bootstrap PostSync job after restarts)
+# Vault (persistent file backend; the vault-init sidecar initializes, stores
+# the unseal key + root token on the PVC, and auto-unseals — no committed
+# token anywhere. For stronger isolation, production should use cloud-KMS or
+# transit auto-unseal instead of on-PVC keys.)
 # ---------------------------------------------------------------------------
 vault:
   enabled: true
   image:
     repository: hashicorp/vault
     tag: "1.19"
-  # Well-known dev-mode root token for the in-cluster throwaway Vault.
-  # Never use dev mode or a committed token outside local environments.
-  devRootToken: "root"
+  storage:
+    size: 1Gi
   resources:
     requests:
       cpu: 50m
