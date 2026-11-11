@@ -1,7 +1,9 @@
 {{- if .Values.vault.enabled }}
-# Runs after every infra-app sync. Idempotent: kubernetes auth, the eso role and
-# any missing KV secrets are (re)created. Required again after a dev-mode Vault
-# restart because its in-memory secrets are lost.
+# Runs during every infra-app sync (Sync hook, not PostSync: the sync would
+# otherwise wait forever for postgres-ha health, which depends on the secrets
+# this job seeds). Idempotent: kubernetes auth, the eso role and any missing KV
+# secrets are (re)created. Required again after a dev-mode Vault restart because
+# its in-memory secrets are lost.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -11,7 +13,7 @@ metadata:
     app.kubernetes.io/name: hyperscale-commerce
     app.kubernetes.io/component: vault
   annotations:
-    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 3
