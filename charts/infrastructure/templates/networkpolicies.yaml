@@ -178,6 +178,47 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: allow-vault-ingress
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: vault
+  ingress:
+    - from:
+        # vault-bootstrap job and any in-namespace client
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hyperscale-commerce
+        # external-secrets operator
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-secrets
+      ports:
+        - { protocol: TCP, port: 8200 }
+---
+# Vault calls the Kubernetes API (TokenReview) to validate client JWTs for
+# kubernetes auth; the apiserver sits outside the pod network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-vault-kube-api-egress
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: vault
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: allow-ingress-traffic
   namespace: {{ .Values.global.namespace }}
 spec:

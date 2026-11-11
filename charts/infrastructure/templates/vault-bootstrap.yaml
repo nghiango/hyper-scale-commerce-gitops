@@ -21,7 +21,8 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: hyperscale-commerce
-        app.kubernetes.io/component: vault
+        # Distinct from "vault" so the pod is not selected by the vault Service.
+        app.kubernetes.io/component: vault-bootstrap
     spec:
       serviceAccountName: hyperscale-service-account
       restartPolicy: OnFailure
