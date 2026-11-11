@@ -183,7 +183,6 @@ spec:
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           args:
             - server
-            - -config=/vault/config/vault.hcl
           env:
             - name: SKIP_SETCAP
               value: "true"
@@ -201,8 +200,13 @@ spec:
           resources:
             {{- toYaml .Values.vault.resources | nindent 12 }}
           volumeMounts:
+            # subPath: the entrypoint adds -config=/vault/config itself, so the
+            # directory must contain only vault.hcl — a full-directory mount
+            # would also expose init.sh as invalid config and load vault.hcl
+            # twice (duplicate listener bind error).
             - name: vault-config
-              mountPath: /vault/config
+              mountPath: /vault/config/vault.hcl
+              subPath: vault.hcl
             - name: vault-data
               mountPath: /vault/data
         - name: vault-init
@@ -212,7 +216,7 @@ spec:
               drop: ["ALL"]
           image: "{{ .Values.vault.image.repository }}:{{ .Values.vault.image.tag }}"
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-          command: [/bin/sh, /vault/config/init.sh]
+          command: [/bin/sh, /vault/scripts/init.sh]
           env:
             - name: VAULT_NAMESPACE_NAME
               value: {{ .Values.global.namespace | quote }}
@@ -246,7 +250,8 @@ spec:
             {{- toYaml .Values.vault.resources | nindent 12 }}
           volumeMounts:
             - name: vault-config
-              mountPath: /vault/config
+              mountPath: /vault/scripts/init.sh
+              subPath: init.sh
             - name: vault-data
               mountPath: /vault/data
       volumes:
