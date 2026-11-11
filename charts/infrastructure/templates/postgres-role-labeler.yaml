@@ -1,0 +1,145 @@
+{{- if .Values.postgresHa.enabled }}
+# Patroni does not label pods with their cluster role in this chart, so the
+# postgres-ha-primary Service (selector role=primary) has no endpoints and
+# cannot track failovers. This controller polls each member's Patroni REST API
+# and keeps the pod "role" label in sync — the patroni-native equivalent of
+# on_role_change callbacks, without modifying the patroni image.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-role-labeler
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: postgres-role-labeler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-role-labeler
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: postgres-role-labeler
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-role-labeler
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: postgres-role-labeler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-role-labeler
+subjects:
+  - kind: ServiceAccount
+    name: postgres-role-labeler
+    namespace: {{ .Values.global.namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-role-labeler
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: postgres-role-labeler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: postgres-role-labeler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: postgres-role-labeler
+    spec:
+      serviceAccountName: postgres-role-labeler
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 100
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: labeler
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.postgresHa.roleLabeler.image.repository }}:{{ .Values.postgresHa.roleLabeler.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              TOKEN_FILE=/var/run/secrets/kubernetes.io/serviceaccount/token
+              CA_FILE=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              API="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+
+              while true; do
+                TOKEN=$(cat "$TOKEN_FILE")
+                for POD in postgres-ha-0 postgres-ha-1 postgres-ha-2; do
+                  # Patroni reports role: master (leader), replica, or standby_leader
+                  ROLE=$(curl -sf --max-time 3 \
+                    "http://${POD}.postgres-ha-headless.${POD_NAMESPACE}.svc.cluster.local:8008/patroni" \
+                    | sed -n 's/.*"role":"\([^"]*\)".*/\1/p') || ROLE=""
+                  case "$ROLE" in
+                    master|standby_leader|primary) WANT=primary ;;
+                    *) WANT=replica ;;
+                  esac
+
+                  CUR=$(curl -sf --max-time 3 --cacert "$CA_FILE" \
+                    -H "Authorization: Bearer $TOKEN" \
+                    "$API/api/v1/namespaces/${POD_NAMESPACE}/pods/${POD}" \
+                    | sed -n 's/.*"labels":{[^}]*"role":"\([^"]*\)".*/\1/p') || CUR=""
+
+                  if [ "$CUR" != "$WANT" ]; then
+                    curl -sf --max-time 5 --cacert "$CA_FILE" \
+                      -H "Authorization: Bearer $TOKEN" \
+                      -H 'Content-Type: application/strategic-merge-patch+json' \
+                      -X PATCH \
+                      -d "{\"metadata\":{\"labels\":{\"role\":\"$WANT\"}}}" \
+                      "$API/api/v1/namespaces/${POD_NAMESPACE}/pods/${POD}" \
+                      >/dev/null \
+                      && echo "$POD: $CUR -> $WANT"
+                  fi
+                done
+                sleep 10
+              done
+          resources:
+            {{- toYaml .Values.postgresHa.roleLabeler.resources | nindent 12 }}
+---
+# The labeler needs egress to the Kubernetes API for pod label patches
+# (post-DNAT endpoint port 6443 plus the service port 443).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-role-labeler-kube-api-egress
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: postgres-role-labeler
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
+{{- end }}

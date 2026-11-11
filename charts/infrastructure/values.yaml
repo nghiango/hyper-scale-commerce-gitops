@@ -129,6 +129,18 @@ postgresHa:
     username: hyperscale
     # password and replicatorPassword are pulled from Vault via ExternalSecret
     # (secret/data/hyperscale/postgres) — never commit credentials here.
+  # Patroni role -> pod label sync so postgres-ha-primary tracks the leader.
+  roleLabeler:
+    image:
+      repository: curlimages/curl
+      tag: "8.10.1"
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 50m
+        memory: 32Mi
 
 redis:
   enabled: true
