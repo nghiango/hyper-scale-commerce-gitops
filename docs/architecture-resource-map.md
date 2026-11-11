@@ -131,13 +131,13 @@ flowchart TB
         NP["NetworkPolicy ×11<br/>default-deny-all + allows"]
     end
 
-    RL["labeler"] -. "patches pod<br/>role label" .-> PSS
+    RD -. "patches pod<br/>role label" .-> PSS
     PPR -. "endpoints follow" .-> PSS
     BCJ -. "backup via" .-> PHS
     PSS -. "DCS" .-> ESS
     ECS -- "kubernetes auth<br/>role=eso" --> VSS
     EEX -- "syncs from" --> ECS
-    VT["Vault kv-v2 secret/"] <-. "seeds + serves" .- VSS
+    EEX -. "reads kv-v2<br/>secret/hyperscale/*" .-> VSS
     EEX -. "creates" .-> KS["k8s Secrets"]
 ```
 
