@@ -127,8 +127,8 @@ postgresHa:
   credentials:
     database: hyperscale
     username: hyperscale
-    password: hyperscale
-    replicatorPassword: replicator_pass
+    # password and replicatorPassword are pulled from Vault via ExternalSecret
+    # (secret/data/hyperscale/postgres) — never commit credentials here.
 
 redis:
   enabled: true
@@ -147,7 +147,8 @@ redis:
       memory: 512Mi
   auth:
     enabled: true
-    password: "redis_secure_password"
+    # password is pulled from Vault via ExternalSecret
+    # (secret/data/hyperscale/redis) — never commit credentials here.
   exporter:
     image:
       repository: oliver006/redis_exporter
@@ -175,3 +176,23 @@ localDelivery:
   primaryPoolSize: 8
   replicaPoolSize: 4
   tracingEndpoint: http://otel-collector:9411/api/v2/spans
+
+# ---------------------------------------------------------------------------
+# Vault (dev mode — local environments only; secrets are in-memory and
+# re-seeded by the vault-bootstrap PostSync job after restarts)
+# ---------------------------------------------------------------------------
+vault:
+  enabled: true
+  image:
+    repository: hashicorp/vault
+    tag: "1.19"
+  # Well-known dev-mode root token for the in-cluster throwaway Vault.
+  # Never use dev mode or a committed token outside local environments.
+  devRootToken: "root"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

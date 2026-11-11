@@ -1,0 +1,82 @@
+{{- if .Values.vault.enabled }}
+# Runs after every infra-app sync. Idempotent: kubernetes auth, the eso role and
+# any missing KV secrets are (re)created. Required again after a dev-mode Vault
+# restart because its in-memory secrets are lost.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-bootstrap
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: hyperscale-commerce
+    app.kubernetes.io/component: vault
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperscale-commerce
+        app.kubernetes.io/component: vault
+    spec:
+      serviceAccountName: hyperscale-service-account
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vault-bootstrap
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          image: "{{ .Values.vault.image.repository }}:{{ .Values.vault.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: VAULT_ADDR
+              value: "http://vault.{{ .Values.global.namespace }}.svc:8200"
+            - name: VAULT_TOKEN
+              value: {{ .Values.vault.devRootToken | quote }}
+            - name: VAULT_NAMESPACE_NAME
+              value: {{ .Values.global.namespace | quote }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "Waiting for Vault..."
+              until vault status >/dev/null 2>&1; do sleep 2; done
+
+              vault auth enable kubernetes 2>/dev/null || true
+              vault write auth/kubernetes/config \
+                kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+
+              vault policy write eso - <<'EOF'
+              path "secret/data/hyperscale/*" {
+                capabilities = ["read"]
+              }
+              EOF
+
+              vault write auth/kubernetes/role/eso \
+                bound_service_account_names=vault-auth \
+                bound_service_account_namespaces="$VAULT_NAMESPACE_NAME" \
+                policies=eso ttl=1h
+
+              gen() { head -c 24 /dev/urandom | base64 | tr -d '\n'; }
+
+              vault kv get secret/hyperscale/postgres >/dev/null 2>&1 || \
+                vault kv put secret/hyperscale/postgres \
+                  password="$(gen)" replicatorPassword="$(gen)"
+
+              vault kv get secret/hyperscale/redis >/dev/null 2>&1 || \
+                vault kv put secret/hyperscale/redis password="$(gen)"
+
+              vault kv get secret/hyperscale/platform >/dev/null 2>&1 || \
+                vault kv put secret/hyperscale/platform grafanaPassword="$(gen)"
+
+              echo "Vault bootstrap complete."
+{{- end }}

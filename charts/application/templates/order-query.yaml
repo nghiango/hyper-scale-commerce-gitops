@@ -101,7 +101,10 @@ spec:
             - name: POSTGRES_USER
               value: {{ .Values.postgresHa.credentials.username | quote }}
             - name: POSTGRES_PASSWORD
-              value: {{ .Values.postgresHa.credentials.password | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: "kafka-headless.{{ .Values.global.namespace }}.svc.cluster.local:9092"
             - name: SPRING_DATA_REDIS_HOST

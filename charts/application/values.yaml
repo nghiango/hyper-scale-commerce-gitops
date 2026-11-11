@@ -127,8 +127,8 @@ postgresHa:
   credentials:
     database: hyperscale
     username: hyperscale
-    password: hyperscale
-    replicatorPassword: replicator_pass
+    # password and replicatorPassword are pulled from Vault via ExternalSecret
+    # (secret/data/hyperscale/postgres) — never commit credentials here.
 
 redis:
   enabled: true
@@ -147,7 +147,8 @@ redis:
       memory: 512Mi
   auth:
     enabled: true
-    password: "redis_secure_password"
+    # password is pulled from Vault via ExternalSecret
+    # (secret/data/hyperscale/redis) — never commit credentials here.
   exporter:
     image:
       repository: oliver006/redis_exporter

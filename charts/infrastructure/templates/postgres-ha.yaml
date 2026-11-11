@@ -116,11 +116,17 @@ spec:
             - name: POSTGRES_USER
               value: {{ .Values.postgresHa.credentials.username | quote }}
             - name: POSTGRES_PASSWORD
-              value: {{ .Values.postgresHa.credentials.password | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
             - name: POSTGRES_DB
               value: {{ .Values.postgresHa.credentials.database | quote }}
             - name: REPLICATOR_PASSWORD
-              value: {{ .Values.postgresHa.credentials.replicatorPassword | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: replicator-password
             - name: PATRONI_DATA_DIR
               value: /var/lib/postgresql/storage/pgdata
           readinessProbe:

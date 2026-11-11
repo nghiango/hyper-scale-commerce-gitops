@@ -60,7 +60,10 @@ spec:
                   echo "Backup archived successfully: /var/lib/pgbackrest/backup_${TIMESTAMP}.tar.gz"
               env:
                 - name: PGPASSWORD
-                  value: {{ .Values.postgresHa.credentials.password | quote }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-credentials
+                      key: password
               volumeMounts:
                 - name: backup-repo
                   mountPath: /var/lib/pgbackrest
