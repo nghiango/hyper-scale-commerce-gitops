@@ -1,5 +1,10 @@
 # Password Rotation Runbook
 
+> **Automated**: `scripts/rotation/rotate-{redis,postgres,grafana}-password.sh`
+> implement each procedure below end-to-end (generate → Vault → wait for ESO →
+> DB step if needed → restarts → verify). Run them instead of the manual steps
+> unless you need to intervene.
+
 How to rotate each credential in this environment. The chain is always:
 
 ```
