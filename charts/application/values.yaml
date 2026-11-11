@@ -176,3 +176,8 @@ localDelivery:
   primaryPoolSize: 8
   replicaPoolSize: 4
   tracingEndpoint: http://otel-collector:9411/api/v2/spans
+  rateLimiting:
+    enabled: false
+    backend: lua
+    limitPerSecond: 5000
+    retryAfterSeconds: 60

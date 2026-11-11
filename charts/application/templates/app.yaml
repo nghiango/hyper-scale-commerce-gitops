@@ -91,6 +91,14 @@ spec:
               value: {{ .Values.localDelivery.tracingEndpoint | quote }}
             - name: MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HTTP_SERVER_REQUESTS
               value: "true"
+            - name: APP_RATE_LIMITING_ENABLED
+              value: {{ .Values.localDelivery.rateLimiting.enabled | quote }}
+            - name: APP_RATE_LIMITING_BACKEND
+              value: {{ .Values.localDelivery.rateLimiting.backend | quote }}
+            - name: APP_RATE_LIMIT_PER_SECOND
+              value: {{ .Values.localDelivery.rateLimiting.limitPerSecond | quote }}
+            - name: APP_RATE_LIMIT_RETRY_AFTER
+              value: {{ .Values.localDelivery.rateLimiting.retryAfterSeconds | quote }}
             {{- end }}
             - name: SPRING_DATASOURCE_URL
               value: "jdbc:postgresql://postgres-ha-0.postgres-ha-headless.{{ .Values.global.namespace }}.svc.cluster.local:5432,postgres-ha-1.postgres-ha-headless.{{ .Values.global.namespace }}.svc.cluster.local:5432,postgres-ha-2.postgres-ha-headless.{{ .Values.global.namespace }}.svc.cluster.local:5432/hyperscale?targetServerType=primary"
