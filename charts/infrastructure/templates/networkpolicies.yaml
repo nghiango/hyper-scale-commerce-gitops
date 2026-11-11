@@ -198,7 +198,9 @@ spec:
         - { protocol: TCP, port: 8200 }
 ---
 # Vault calls the Kubernetes API (TokenReview) to validate client JWTs for
-# kubernetes auth; the apiserver sits outside the pod network.
+# kubernetes auth. The apiserver sits outside the pod network; policies see the
+# post-DNAT endpoint, so both the service port (443) and the endpoint port
+# (6443) must be allowed.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -215,6 +217,7 @@ spec:
             cidr: 0.0.0.0/0
       ports:
         - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
