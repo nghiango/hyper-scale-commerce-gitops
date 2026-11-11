@@ -82,6 +82,7 @@ data:
         continue
       fi
       if [ ! -f "$FLAG" ] && [ "$SEALED" = "false" ]; then
+        vault secrets enable -path=secret kv-v2 2>/dev/null || true
         vault auth enable kubernetes 2>/dev/null || true
         vault write auth/kubernetes/config \
           kubernetes_host="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
