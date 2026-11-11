@@ -96,7 +96,7 @@ spec:
                   # Patroni reports role: master (leader), replica, or standby_leader
                   ROLE=$(curl -sf --max-time 3 \
                     "http://${POD}.postgres-ha-headless.${POD_NAMESPACE}.svc.cluster.local:8008/patroni" \
-                    | sed -n 's/.*"role":"\([^"]*\)".*/\1/p') || ROLE=""
+                    | sed -n 's/.*"role": *"\([^"]*\)".*/\1/p') || ROLE=""
                   case "$ROLE" in
                     master|standby_leader|primary) WANT=primary ;;
                     *) WANT=replica ;;
