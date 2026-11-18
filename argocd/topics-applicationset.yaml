@@ -1,0 +1,51 @@
+# System design practise topics (source: github.com/nghiango/system-design-practise).
+# topics/active.yaml holds exactly one topic name or "none", so this ApplicationSet
+# generates zero or one Application: topic-<name>. Switching the value takes the old
+# topic offline (finalizer removes its resources) and brings the new one online.
+# Apply once:  kubectl --context kind-hyperscale-k8s apply -f argocd/topics-applicationset.yaml
+# WARNING: deleting this ApplicationSet takes the active topic offline.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: system-design-topics
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: system-design
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: git@github.com:nghiango/hyper-scale-commerce-gitops.git
+        revision: main
+        files:
+          - path: topics/active.yaml
+      selector:
+        matchExpressions:
+          - key: active
+            operator: NotIn
+            values: ["none"]
+  template:
+    metadata:
+      name: 'topic-{{ .active }}'
+      labels:
+        system-design/topic: '{{ .active }}'
+        app.kubernetes.io/part-of: system-design
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: git@github.com:nghiango/hyper-scale-commerce-gitops.git
+        targetRevision: main
+        path: 'topics/{{ .active }}/chart'
+        helm:
+          valueFiles: [values-topic.yaml, ../values-local.yaml]
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'topic-{{ .active }}'
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        retry:
+          limit: 5
+          backoff: {duration: 10s, factor: 2, maxDuration: 3m}
