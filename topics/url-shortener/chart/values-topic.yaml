@@ -1,0 +1,8 @@
+# URL Shortener topic settings for deploy/topic-chart.
+topic: url-shortener
+kafka:
+  topics:
+    - name: url-shortener.link.clicked
+      partitions: 6
+# Services are added in the URL Shortener plan.
+services: []

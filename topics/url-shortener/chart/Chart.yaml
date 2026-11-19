@@ -1,0 +1,5 @@
+apiVersion: v2
+name: topic-chart
+description: Generic chart for one system-design topic (namespace, shared-infra access, bootstrap jobs, services)
+type: application
+version: 0.1.0

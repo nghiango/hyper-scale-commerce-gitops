@@ -1,0 +1,79 @@
+{{- $ns := include "topic.namespace" . }}
+# Policies in the shared namespace. They only add allowances for this topic's
+# namespace and disappear when the topic goes offline; existing policies are untouched.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: topic-{{ .Values.topic }}-allow-shared-infra
+  namespace: {{ .Values.sharedNamespace }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [postgres-ha, kafka, redis]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ns }}
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: topic-{{ .Values.topic }}-allow-tracing
+  namespace: {{ .Values.sharedNamespace }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: monitoring
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ns }}
+      ports:
+        - protocol: TCP
+          port: 9411
+        - protocol: TCP
+          port: 4317
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: topic-{{ .Values.topic }}-allow-prometheus-egress
+  namespace: {{ .Values.sharedNamespace }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      local-component: prometheus
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $ns }}
+      ports:
+        - protocol: TCP
+          port: 8080

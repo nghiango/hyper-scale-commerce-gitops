@@ -1,0 +1,92 @@
+{{- $ns := include "topic.namespace" . }}
+{{- $timeout := int .Values.exclusivity.timeoutSeconds }}
+# At most one topic online: before this topic's services start, wait until no
+# other namespace labelled system-design/topic exists (a namespace only
+# disappears after all its pods have terminated).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wait-for-exclusive
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: topic-{{ .Values.topic }}-namespace-reader
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: topic-{{ .Values.topic }}-namespace-reader
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: topic-{{ .Values.topic }}-namespace-reader
+subjects:
+  - kind: ServiceAccount
+    name: wait-for-exclusive
+    namespace: {{ $ns }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wait-for-exclusive
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.hook" "-1" | nindent 4 }}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ add $timeout 60 }}
+  template:
+    metadata:
+      labels:
+        {{- include "topic.labels" . | nindent 8 }}
+        system-design/job: wait-for-exclusive
+    spec:
+      serviceAccountName: wait-for-exclusive
+      restartPolicy: Never
+      containers:
+        - name: wait
+          image: {{ .Values.exclusivity.image | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              SA=/var/run/secrets/kubernetes.io/serviceaccount
+              URL="https://kubernetes.default.svc/api/v1/namespaces?labelSelector=system-design/topic,system-design/topic!={{ .Values.topic }}"
+              deadline=$(( $(date +%s) + {{ $timeout }} ))
+              while :; do
+                body=$(curl -sS --fail --cacert "$SA/ca.crt" -H "Authorization: Bearer $(cat $SA/token)" "$URL") || body=""
+                if echo "$body" | grep -q '"items":\[\]'; then
+                  echo "no other topic online; continuing"
+                  exit 0
+                fi
+                names=$(echo "$body" | grep -o '"name":"topic-[a-z0-9-]*"' | sort -u | tr '\n' ' ')
+                echo "still online: ${names:-unknown (API call failed)}"
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "timed out after {{ $timeout }}s waiting for other topics to go offline; still online: $names"
+                  exit 1
+                fi
+                sleep 5
+              done
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
