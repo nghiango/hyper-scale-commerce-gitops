@@ -23,6 +23,24 @@ roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: local-monitorin
 subjects:
   - {kind: ServiceAccount, name: local-monitoring, namespace: {{ .Values.namespace }}}
 ---
+# Read-only, cluster-wide: Prometheus discovers system-design topic namespaces (topic-*).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: local-monitoring-topics
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: local-monitoring-topics
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: local-monitoring-topics}
+subjects:
+  - {kind: ServiceAccount, name: local-monitoring, namespace: {{ .Values.namespace }}}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -107,6 +125,7 @@ spec:
             - {name: config, mountPath: /etc/grafana/provisioning/datasources/datasources.yaml, subPath: datasources.yaml}
             - {name: config, mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml, subPath: dashboards.yaml}
             - {name: config, mountPath: /dashboards/dashboard.json, subPath: dashboard.json}
+            - {name: config, mountPath: /dashboards/topics-dashboard.json, subPath: topics-dashboard.json}
             {{- end }}
           {{- if or (eq $name "grafana") $component.env }}
           env:

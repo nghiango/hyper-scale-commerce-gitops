@@ -43,6 +43,45 @@ loki.source.kubernetes "pod_logs" {
   forward_to = [loki.write.local.receiver]
 }
 
+// System-design practise topics (namespaces topic-*, one online at a time).
+discovery.kubernetes "topic_pods" {
+  role = "pod"
+}
+
+discovery.relabel "topic_pod_logs" {
+  targets = discovery.kubernetes.topic_pods.targets
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    regex         = "topic-.+"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_system_design_topic"]
+    target_label  = "topic"
+  }
+  rule {
+    target_label = "cluster"
+    replacement  = "hyperscale-local"
+  }
+}
+
+loki.source.kubernetes "topic_pod_logs" {
+  targets    = discovery.relabel.topic_pod_logs.output
+  forward_to = [loki.write.local.receiver]
+}
+
 loki.write "local" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"

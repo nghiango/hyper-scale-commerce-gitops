@@ -61,6 +61,27 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: local-log-reader}
 subjects:
   - {kind: ServiceAccount, name: local-log-reader, namespace: {{ .Values.namespace }}}
+---
+# Read-only, cluster-wide: Alloy tails pods in system-design topic namespaces (topic-*).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: local-log-reader-topics
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: local-log-reader-topics
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: local-log-reader-topics}
+subjects:
+  - {kind: ServiceAccount, name: local-log-reader, namespace: {{ .Values.namespace }}}
 {{- range $name := list "loki" "alloy" }}
 ---
 apiVersion: v1
