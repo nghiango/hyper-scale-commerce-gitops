@@ -75,11 +75,11 @@ spec:
               deadline=$(( $(date +%s) + {{ $timeout }} ))
               while :; do
                 body=$(curl -sS --fail --cacert "$SA/ca.crt" -H "Authorization: Bearer $(cat $SA/token)" "$URL") || body=""
-                if echo "$body" | grep -q '"items":\[\]'; then
+                if echo "$body" | grep -Eq '"items": *\[ *\]'; then
                   echo "no other topic online; continuing"
                   exit 0
                 fi
-                names=$(echo "$body" | grep -o '"name":"topic-[a-z0-9-]*"' | sort -u | tr '\n' ' ')
+                names=$(echo "$body" | grep -Eo '"name": *"topic-[a-z0-9-]+"' | sed -E 's/.*"(topic-[a-z0-9-]+)"/\1/' | sort -u | tr '\n' ' ')
                 echo "still online: ${names:-unknown (API call failed)}"
                 if [ "$(date +%s)" -ge "$deadline" ]; then
                   echo "timed out after {{ $timeout }}s waiting for other topics to go offline; still online: $names"
