@@ -4,8 +4,23 @@
 {{- fail (printf "invalid topic %q: use ^[a-z][a-z0-9-]{1,30}$" $topic) -}}
 {{- end -}}
 {{- range .Values.kafka.topics -}}
-{{- if not (hasPrefix (printf "%s." $topic) (toString .name)) -}}
-{{- fail (printf "kafka topic %q must start with '%s.'" (toString .name) $topic) -}}
+{{- $name := toString .name -}}
+{{- if not (hasPrefix (printf "%s." $topic) $name) -}}
+{{- fail (printf "kafka topic %q must start with '%s.'" $name $topic) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-z0-9-]+\\.[a-zA-Z0-9._-]+$" $name) -}}
+{{- fail (printf "kafka topic %q: only letters, digits and ._- are allowed" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- range .Values.services -}}
+{{- $name := toString .name -}}
+{{- if not (regexMatch "^[a-z][a-z0-9-]{0,30}$" $name) -}}
+{{- fail (printf "service name %q: use ^[a-z][a-z0-9-]{0,30}$" $name) -}}
+{{- end -}}
+{{- range $k, $v := .env -}}
+{{- if not (regexMatch "^[A-Z_][A-Z0-9_]*$" $k) -}}
+{{- fail (printf "service %q env key %q: use ^[A-Z_][A-Z0-9_]*$" $name $k) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

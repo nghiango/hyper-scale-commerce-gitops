@@ -129,5 +129,7 @@ spec:
             matchLabels:
               local-component: prometheus
       ports:
+        {{- range .Values.services }}
         - protocol: TCP
-          port: 8080
+          port: {{ int (.port | default 8080) }}
+        {{- end }}
