@@ -1,0 +1,4 @@
+name: banking-transfer
+title: Banking Money Transfer
+focus: ACID transactions, idempotency, ledger, distributed transactions, recovery
+level: Advanced

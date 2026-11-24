@@ -1,0 +1,9 @@
+{{- include "topic.validate" . }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "topic.namespace" . }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-3" | nindent 4 }}

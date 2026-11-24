@@ -1,0 +1,39 @@
+{{- if .Values.kafka.topics }}
+# Create this topic's Kafka topics on the shared cluster (idempotent).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topics
+  namespace: {{ include "topic.namespace" . }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.hook" "0" | nindent 4 }}
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "topic.labels" . | nindent 8 }}
+        system-design/job: kafka-topics
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: kafka-topics
+          image: {{ .Values.kafka.image | quote }}
+          env:
+            - {name: KAFKA_HEAP_OPTS, value: "-Xms64m -Xmx256m"}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              {{- range .Values.kafka.topics }}
+              kafka-topics --bootstrap-server {{ $.Values.kafka.bootstrap }} --create --if-not-exists \
+                --topic {{ .name }} --partitions {{ .partitions | default 3 }} --replication-factor {{ $.Values.kafka.replicationFactor }}
+              {{- end }}
+              kafka-topics --bootstrap-server {{ .Values.kafka.bootstrap }} --list | grep '^{{ .Values.topic }}\.'
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 512Mi}
+{{- end }}

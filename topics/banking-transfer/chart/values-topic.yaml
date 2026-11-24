@@ -1,0 +1,11 @@
+# Banking Money Transfer topic settings for deploy/topic-chart.
+topic: banking-transfer
+kafka:
+  topics:
+    - name: banking-transfer.ledger.entries
+      partitions: 6
+services:
+  - name: transfer-api
+    port: 8080
+  - name: ledger-worker
+    port: 8080
