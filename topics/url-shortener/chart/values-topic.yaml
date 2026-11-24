@@ -4,5 +4,8 @@ kafka:
   topics:
     - name: url-shortener.link.clicked
       partitions: 6
-# Services are added in the URL Shortener plan.
-services: []
+services:
+  - name: link-api
+    port: 8080
+  - name: redirect
+    port: 8080
