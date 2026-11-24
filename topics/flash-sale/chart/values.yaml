@@ -1,0 +1,55 @@
+# Topic slug (required). Every resource is named/labelled from it.
+topic: ""
+# Namespace of the shared Kafka/Postgres/Redis/monitoring.
+sharedNamespace: hyperscale
+
+# Set by Jenkins in values-local.yaml.
+revision: ""
+imagePrefix: ""
+imageTag: ""
+imagePullPolicy: Always
+
+postgres:
+  host: postgres-ha-primary.hyperscale.svc
+  port: 5432
+  adminUser: hyperscale
+  adminDatabase: hyperscale
+  # Matches the server major version (Patroni image is built FROM postgres:16-alpine).
+  clientImage: "postgres:16-alpine"
+
+# The database name is derived: topic with "-" replaced by "_".
+database:
+  enabled: true
+
+kafka:
+  bootstrap: kafka.hyperscale.svc:9092
+  image: "confluentinc/cp-kafka:7.7.0"
+  replicationFactor: 3
+  # - name: <topic>.<entity>.<event>
+  #   partitions: 6
+  topics: []
+
+redis:
+  enabled: true
+  host: redis.hyperscale.svc
+
+tracing:
+  endpoint: http://otel-collector.hyperscale.svc:9411/api/v2/spans
+
+exclusivity:
+  image: "curlimages/curl:8.10.1"
+  timeoutSeconds: 300
+
+# - name: link-service
+#   port: 8080
+#   replicas: 1
+#   resources: {}
+#   env: {}
+services: []
+
+defaultResources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    memory: 768Mi

@@ -1,0 +1,11 @@
+# Flash Sale topic settings for deploy/topic-chart.
+topic: flash-sale
+kafka:
+  topics:
+    - name: flash-sale.order.created
+      partitions: 6
+services:
+  - name: seckill-api
+    port: 8080
+  - name: order-worker
+    port: 8080
