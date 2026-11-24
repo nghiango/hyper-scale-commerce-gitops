@@ -1,0 +1,15 @@
+# Notification topic settings for deploy/topic-chart.
+topic: notification
+kafka:
+  topics:
+    - name: notification.requested
+      partitions: 6
+    - name: notification.retry
+      partitions: 6
+    - name: notification.dlq
+      partitions: 3
+services:
+  - name: notify-api
+    port: 8080
+  - name: sender-worker
+    port: 8080

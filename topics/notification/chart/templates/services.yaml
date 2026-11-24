@@ -1,0 +1,85 @@
+{{- $ns := include "topic.namespace" . }}
+{{- range .Values.services }}
+{{- $port := int (.port | default 8080) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ .name }}
+  annotations:
+    {{- include "topic.wave" "1" | nindent 4 }}
+spec:
+  replicas: {{ .replicas | default 1 }}
+  selector:
+    matchLabels:
+      system-design/topic: {{ $.Values.topic }}
+      app.kubernetes.io/name: {{ .name }}
+  template:
+    metadata:
+      labels:
+        {{- include "topic.labels" $ | nindent 8 }}
+        app.kubernetes.io/name: {{ .name }}
+    spec:
+      containers:
+        - name: {{ .name }}
+          image: "{{ $.Values.imagePrefix }}/{{ $.Values.topic }}-{{ .name }}:{{ $.Values.imageTag }}"
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $port }}
+          env:
+            - {name: SD_TOPIC, value: {{ $.Values.topic | quote }}}
+            - {name: SD_REVISION, value: {{ $.Values.revision | quote }}}
+            - {name: SERVER_PORT, value: {{ $port | quote }}}
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://{{ $.Values.postgres.host }}:{{ $.Values.postgres.port }}/{{ include "topic.dbName" $ }}"}
+            - {name: SPRING_DATASOURCE_USERNAME, value: {{ $.Values.postgres.adminUser | quote }}}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgres-credentials, key: password}
+            {{- if $.Values.redis.enabled }}
+            - {name: SPRING_DATA_REDIS_HOST, value: {{ $.Values.redis.host | quote }}}
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: redis-secret, key: redis-password}
+            {{- end }}
+            - {name: SD_REDIS_KEY_PREFIX, value: "{{ $.Values.topic }}:"}
+            - {name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: {{ $.Values.kafka.bootstrap | quote }}}
+            - {name: SD_KAFKA_GROUP_PREFIX, value: "{{ $.Values.topic }}."}
+            - {name: SD_TRACING_ZIPKIN_ENDPOINT, value: {{ $.Values.tracing.endpoint | quote }}}
+            {{- range $k, $v := .env }}
+            - {name: {{ $k }}, value: {{ $v | quote }}}
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml (.resources | default $.Values.defaultResources) | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ .name }}
+  annotations:
+    {{- include "topic.wave" "1" | nindent 4 }}
+spec:
+  selector:
+    system-design/topic: {{ $.Values.topic }}
+    app.kubernetes.io/name: {{ .name }}
+  ports:
+    - name: http
+      port: {{ $port }}
+      targetPort: http
+{{- end }}
