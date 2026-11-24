@@ -1,0 +1,135 @@
+{{- $ns := include "topic.namespace" . }}
+# Policies inside the topic namespace: deny by default, then allow exactly what
+# a topic needs (DNS, shared infra, its own pods, Prometheus scraping).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-shared-infra
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    {{- range $component, $ports := dict "postgres-ha" (list 5432) "kafka" (list 9092) "redis" (list 6379) "monitoring" (list 9411 4317) }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.sharedNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: {{ $component }}
+      ports:
+        {{- range $ports }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kube-api-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      system-design/job: wait-for-exclusive
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-topic
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: {{ $ns }}
+  labels:
+    {{- include "topic.labels" . | nindent 4 }}
+  annotations:
+    {{- include "topic.wave" "-2" | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.sharedNamespace }}
+          podSelector:
+            matchLabels:
+              local-component: prometheus
+      ports:
+        {{- range .Values.services }}
+        - protocol: TCP
+          port: {{ int (.port | default 8080) }}
+        {{- end }}

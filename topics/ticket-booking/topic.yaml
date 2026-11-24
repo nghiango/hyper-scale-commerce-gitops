@@ -1,0 +1,4 @@
+name: ticket-booking
+title: Ticket Booking System
+focus: Seat locking, reservation expiration, payment, race conditions
+level: Intermediate-Advanced

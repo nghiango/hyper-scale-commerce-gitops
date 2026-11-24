@@ -1,0 +1,11 @@
+# Ticket Booking topic settings for deploy/topic-chart.
+topic: ticket-booking
+kafka:
+  topics:
+    - name: ticket-booking.booking.events
+      partitions: 6
+services:
+  - name: booking-api
+    port: 8080
+  - name: booking-worker
+    port: 8080
