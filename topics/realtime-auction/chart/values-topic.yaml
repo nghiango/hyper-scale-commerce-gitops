@@ -1,0 +1,13 @@
+# Real-Time Auction topic settings for deploy/topic-chart.
+topic: realtime-auction
+kafka:
+  topics:
+    - name: realtime-auction.bids
+      partitions: 6
+    - name: realtime-auction.updates
+      partitions: 6
+services:
+  - name: auction-api
+    port: 8080
+  - name: auction-broadcast
+    port: 8080

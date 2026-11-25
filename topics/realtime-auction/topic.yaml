@@ -1,0 +1,4 @@
+name: realtime-auction
+title: Real-Time Auction
+focus: Concurrent bids, ordering, WebSocket broadcast, consistency
+level: Advanced
